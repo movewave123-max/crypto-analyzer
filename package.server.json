@@ -1,0 +1,15 @@
+{
+  "name": "directional-movement-server",
+  "version": "1.0.0",
+  "description": "Backend server for Directional Movement Analysis",
+  "main": "server.cjs",
+  "scripts": {
+    "start": "node server.cjs",
+    "install-server": "npm install express ws cors"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0",
+    "cors": "^2.8.5"
+  }
+}
