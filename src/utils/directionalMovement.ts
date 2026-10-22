@@ -118,7 +118,11 @@ export function updateDirectionalState(state: DirectionalState, price: number, n
       ? newExtremePrice - startPrice
       : startPrice - newExtremePrice;
     
-    const movePercent = (moveAmount / startPrice) * 100;
+    // Para movimientos bajistas, el porcentaje debe ser negativo
+    const movePercent = direction === 'up'
+      ? (moveAmount / startPrice) * 100
+      : -(moveAmount / startPrice) * 100;
+    
     const duration = now - startTime;
 
     const completedRun: DirectionalRun = {
@@ -179,8 +183,9 @@ function calculateStats(upRuns: DirectionalRun[], downRuns: DirectionalRun[]) {
     ? Math.max(...upRuns.map(r => r.movePercent))
     : 0;
 
+  // Para bajistas, usar valores absolutos (todos son negativos)
   const maxDownMove = downRuns.length > 0
-    ? Math.max(...downRuns.map(r => r.movePercent))
+    ? Math.max(...downRuns.map(r => Math.abs(r.movePercent)))
     : 0;
 
   const minUpMove = upRuns.length > 0
@@ -188,7 +193,7 @@ function calculateStats(upRuns: DirectionalRun[], downRuns: DirectionalRun[]) {
     : Infinity;
 
   const minDownMove = downRuns.length > 0
-    ? Math.min(...downRuns.map(r => r.movePercent))
+    ? Math.min(...downRuns.map(r => Math.abs(r.movePercent)))
     : Infinity;
 
   const avgUpDuration = upRuns.length > 0
