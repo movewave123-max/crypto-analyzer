@@ -1,4 +1,5 @@
-import { DirectionalState, DirectionalRun, formatDuration } from '../utils/directionalMovement';
+import { useMemo, useState } from 'react';
+import { DirectionalState, formatDuration } from '../utils/directionalMovement';
 
 interface DirectionalDisplayProps {
   state: DirectionalState;
@@ -8,6 +9,11 @@ interface DirectionalDisplayProps {
 
 export default function DirectionalDisplay({ state, currentPrice, appStartTime }: DirectionalDisplayProps) {
   const { currentRun, upRuns, downRuns, stats, reversalThreshold } = state;
+  const [directionFilter, setDirectionFilter] = useState<'all' | 'up' | 'down'>('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [minMove, setMinMove] = useState('');
+  const [maxMove, setMaxMove] = useState('');
 
   // Calcular el movimiento actual en progreso
   const currentMovePercent = currentRun.direction && currentRun.startPrice > 0
@@ -24,10 +30,38 @@ export default function DirectionalDisplay({ state, currentPrice, appStartTime }
 
   const currentDuration = currentRun.startTime > 0 ? Date.now() - currentRun.startTime : 0;
 
-  // Últimos 10 runs (mezclados y ordenados por tiempo)
-  const recentRuns = [...upRuns, ...downRuns]
-    .sort((a, b) => b.endTime - a.endTime)
-    .slice(0, 10);
+  // Movimientos recientes mezclados y ordenados por tiempo.
+  const recentRuns = useMemo(() => [...upRuns, ...downRuns].sort((a, b) => b.endTime - a.endTime), [upRuns, downRuns]);
+  const filteredRuns = useMemo(() => recentRuns.filter((run) => {
+    const move = Math.abs(run.movePercent);
+    const startTime = startDate ? new Date(`${startDate}T00:00:00`).getTime() : -Infinity;
+    const endTime = endDate ? new Date(`${endDate}T23:59:59.999`).getTime() : Infinity;
+    return (directionFilter === 'all' || run.direction === directionFilter)
+      && run.endTime >= startTime && run.endTime <= endTime
+      && (!minMove || move >= Number(minMove))
+      && (!maxMove || move <= Number(maxMove));
+  }), [recentRuns, directionFilter, startDate, endDate, minMove, maxMove]);
+
+  const exportCsv = () => {
+    const escapeCsv = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+    const rows = [
+      ['Dirección', 'Inicio', 'Fin', 'Precio inicio', 'Extremo', 'Precio fin', 'Movimiento %', 'Duración ms'],
+      ...filteredRuns.map((run) => [
+        run.direction === 'up' ? 'Alcista' : 'Bajista',
+        new Date(run.startTime).toISOString(), new Date(run.endTime).toISOString(),
+        run.startPrice, run.extremePrice, run.endPrice, run.movePercent, run.duration,
+      ]),
+    ];
+    const csv = `\uFEFF${rows.map((row) => row.map(escapeCsv).join(',')).join('\r\n')}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ethusdt-movimientos-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
   return (
     <div className="space-y-6">
@@ -37,8 +71,9 @@ export default function DirectionalDisplay({ state, currentPrice, appStartTime }
           📊 Análisis de Movimiento Direccional
         </h2>
         <p className="text-sm text-gray-400">
-          Mide cuánto se mueve el precio en una dirección antes de retroceder {reversalThreshold}%
+          Registra el recorrido desde el inicio hasta el máximo o mínimo alcanzado. El movimiento se da por terminado cuando el precio retrocede {reversalThreshold}% desde ese extremo.
         </p>
+        <p className="text-xs text-amber-300 mt-2">Es una estadística descriptiva del precio; no predice el mercado ni constituye una recomendación de trading.</p>
         {appStartTime > 0 && (
           <p className="text-xs text-gray-500 mt-2">
             ⏱️ Tiempo transcurrido: {formatDuration(Date.now() - appStartTime)}
@@ -230,15 +265,46 @@ export default function DirectionalDisplay({ state, currentPrice, appStartTime }
         </div>
       </div>
 
+      <p className="-mt-4 text-xs text-gray-500">
+        Las estadísticas y el gráfico usan los movimientos conservados: hasta 1.000 alcistas y 1.000 bajistas más recientes.
+      </p>
+
       {/* Historial de runs recientes */}
       <div className="rounded-lg bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700 p-6">
         <h3 className="text-lg font-semibold text-white mb-4">
           📜 Historial de Movimientos Recientes
         </h3>
 
-        {recentRuns.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+          <label className="text-xs text-gray-400">Dirección
+            <select value={directionFilter} onChange={(event) => setDirectionFilter(event.target.value as 'all' | 'up' | 'down')} className="mt-1 block w-full rounded bg-gray-950 border border-gray-700 p-2 text-white">
+              <option value="all">Todas</option><option value="up">Alcistas</option><option value="down">Bajistas</option>
+            </select>
+          </label>
+          <label className="text-xs text-gray-400">Desde
+            <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-1 block w-full rounded bg-gray-950 border border-gray-700 p-2 text-white" />
+          </label>
+          <label className="text-xs text-gray-400">Hasta
+            <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-1 block w-full rounded bg-gray-950 border border-gray-700 p-2 text-white" />
+          </label>
+          <label className="text-xs text-gray-400">Movimiento mínimo (%)
+            <input type="number" min="0" step="0.1" value={minMove} onChange={(event) => setMinMove(event.target.value)} className="mt-1 block w-full rounded bg-gray-950 border border-gray-700 p-2 text-white" />
+          </label>
+          <label className="text-xs text-gray-400">Movimiento máximo (%)
+            <input type="number" min="0" step="0.1" value={maxMove} onChange={(event) => setMaxMove(event.target.value)} className="mt-1 block w-full rounded bg-gray-950 border border-gray-700 p-2 text-white" />
+          </label>
+        </div>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <p className="text-xs text-gray-500">{filteredRuns.length} de {recentRuns.length} movimientos disponibles · se muestran hasta 100</p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => { setDirectionFilter('all'); setStartDate(''); setEndDate(''); setMinMove(''); setMaxMove(''); }} className="rounded border border-gray-600 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700">Limpiar filtros</button>
+            <button type="button" onClick={exportCsv} disabled={filteredRuns.length === 0} className="rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-40">Exportar CSV</button>
+          </div>
+        </div>
+
+        {filteredRuns.length > 0 ? (
           <div className="space-y-2">
-            {recentRuns.map((run) => (
+            {filteredRuns.slice(0, 100).map((run) => (
               <div
                 key={run.id}
                 className={`flex items-center justify-between p-3 rounded border ${
@@ -278,9 +344,9 @@ export default function DirectionalDisplay({ state, currentPrice, appStartTime }
           </div>
         ) : (
           <div className="text-center py-8 text-gray-500">
-            <p className="text-sm">No hay movimientos completados aún</p>
+            <p className="text-sm">{recentRuns.length === 0 ? 'No hay movimientos completados aún' : 'No hay movimientos que coincidan con estos filtros'}</p>
             <p className="text-xs mt-1">
-              Los movimientos aparecerán aquí cuando se complete un ciclo (movimiento + retroceso de {reversalThreshold}%)
+              Prueba a quitar filtros o espera a que se complete un movimiento (recorrido seguido de un retroceso de {reversalThreshold}%).
             </p>
           </div>
         )}
@@ -293,24 +359,24 @@ export default function DirectionalDisplay({ state, currentPrice, appStartTime }
         </h3>
         <div className="space-y-2 text-sm text-gray-300">
           <p>
-            <strong className="text-white">1. Detección de dirección:</strong> Cuando el precio comienza a moverse significativamente en una dirección (alcista o bajista), se inicia un "run".
+            <strong className="text-white">1. Punto de partida:</strong> se inicia un movimiento cuando el precio se separa al menos un 0,01% del precio de referencia.
           </p>
           <p>
-            <strong className="text-white">2. Seguimiento del extremo:</strong> Se trackea el máximo (en runs alcistas) o mínimo (en runs bajistas) alcanzado durante el movimiento.
+            <strong className="text-white">2. Seguimiento:</strong> se guarda el máximo durante un tramo alcista o el mínimo durante uno bajista.
           </p>
           <p>
-            <strong className="text-white">3. Detección de reversa:</strong> Cuando el precio retrocede {reversalThreshold}% desde el extremo, se considera que el run ha terminado.
+            <strong className="text-white">3. Final del tramo:</strong> se cierra cuando el precio retrocede {reversalThreshold}% desde el extremo. El tamaño informado es el recorrido desde el inicio hasta ese máximo o mínimo, no el retroceso.
           </p>
           <p>
-            <strong className="text-white">4. Registro:</strong> Se guarda cuánto se movió el precio en esa dirección antes del retroceso, junto con la duración del movimiento.
+            <strong className="text-white">4. Registro:</strong> cada tramo completado incluye dirección, precios, porcentaje de movimiento y duración. Los datos se guardan localmente en el servidor.
           </p>
           <p>
-            <strong className="text-white">5. Estadísticas:</strong> Se calculan promedios, máximos y mínimos de todos los runs completados en cada dirección.
+            <strong className="text-white">5. Límites e interpretación:</strong> se conservan como máximo los 1.000 tramos más recientes por dirección. Las estadísticas describen ese conjunto; no incluyen comisiones, financiación ni predicen resultados futuros.
           </p>
         </div>
         <div className="mt-4 p-3 bg-gray-800/50 rounded border border-gray-700">
           <p className="text-xs text-gray-400">
-            <strong className="text-gray-300">Ejemplo:</strong> Si el precio sube de $2,500 a $2,530 (+1.2%) y luego retrocede a $2,520 (-0.4% desde el máximo), se registra un movimiento alcista de +1.2% con duración de X segundos/minutos.
+            <strong className="text-gray-300">Ejemplo:</strong> si el precio sube de $2.500 a $2.530 (+1,2%) y luego retrocede un 0,4% desde el máximo, se registra el tramo alcista de +1,2%. El retroceso sirve para detectar el cierre; no se resta del recorrido registrado.
           </p>
         </div>
       </div>

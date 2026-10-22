@@ -17,6 +17,7 @@ export interface DirectionalState {
     startPrice: number;
     extremePrice: number;
     startTime: number;
+    extremeTime: number;
   };
   upRuns: DirectionalRun[];
   downRuns: DirectionalRun[];
@@ -42,6 +43,7 @@ export function createDirectionalState(reversalThreshold: number = 0.4): Directi
       startPrice: 0,
       extremePrice: 0,
       startTime: 0,
+      extremeTime: 0,
     },
     upRuns: [],
     downRuns: [],
@@ -71,6 +73,7 @@ export function updateDirectionalState(state: DirectionalState, price: number, n
         startPrice: price,
         extremePrice: price,
         startTime: now,
+        extremeTime: now,
       },
     };
   }
@@ -90,6 +93,7 @@ export function updateDirectionalState(state: DirectionalState, price: number, n
           startPrice,
           extremePrice: price,
           startTime,
+          extremeTime: now,
         },
       };
     }
@@ -98,10 +102,13 @@ export function updateDirectionalState(state: DirectionalState, price: number, n
 
   // Actualizar extremo si el precio sigue en la dirección del run
   let newExtremePrice = extremePrice;
+  let newExtremeTime = currentRun.extremeTime || startTime;
   if (direction === 'up' && price > extremePrice) {
     newExtremePrice = price;
+    newExtremeTime = now;
   } else if (direction === 'down' && price < extremePrice) {
     newExtremePrice = price;
+    newExtremeTime = now;
   }
 
   // Calcular retroceso desde el extremo
@@ -150,9 +157,10 @@ export function updateDirectionalState(state: DirectionalState, price: number, n
       ...state,
       currentRun: {
         direction: direction === 'up' ? 'down' : 'up',
-        startPrice: price,
+        startPrice: newExtremePrice,
         extremePrice: price,
-        startTime: now,
+        startTime: newExtremeTime,
+        extremeTime: now,
       },
       upRuns: newUpRuns,
       downRuns: newDownRuns,
@@ -166,6 +174,7 @@ export function updateDirectionalState(state: DirectionalState, price: number, n
     currentRun: {
       ...currentRun,
       extremePrice: newExtremePrice,
+      extremeTime: newExtremeTime,
     },
   };
 }

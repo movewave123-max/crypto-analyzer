@@ -5,10 +5,15 @@ import DirectionalDisplay from './components/DirectionalDisplay';
 import EquityChart from './components/EquityChart';
 import Alerts from './components/Alerts';
 import TemporalComparison from './components/TemporalComparison';
+import StrategyTab from './components/StrategyTab';
+import BacktestTab from './components/BacktestTab';
+import RealtimePriceChart from './components/RealtimePriceChart';
+import AdminPanel from './components/AdminPanel';
 import { formatDuration } from './utils/directionalMovement';
 
 export default function App() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [activeTab, setActiveTab] = useState<'analysis' | 'strategy' | 'backtest' | 'admin'>('analysis');
 
   const {
     currentPrice,
@@ -16,10 +21,15 @@ export default function App() {
     priceChangePercent24h,
     directionalState,
     isConnected,
+    isServerConnected,
     lastUpdate,
     appStartTime,
     initialized,
     resetData,
+    strategy,
+    startStrategy,
+    stopStrategy,
+    resetStrategy,
   } = useBinanceData();
 
   const handleReset = async () => {
@@ -34,7 +44,8 @@ export default function App() {
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Conectando con Binance Futures...</p>
+          <p className="text-gray-400">Conectando con el servidor y Binance Futures...</p>
+          <p className="text-xs text-gray-600 mt-2">Si tarda, comprueba que el servidor local esté en marcha.</p>
         </div>
       </div>
     );
@@ -58,7 +69,9 @@ export default function App() {
               <p className="text-xs text-gray-600">
                 Tiempo desde inicio: {formatDuration(elapsedSinceStart)}
               </p>
-              {!showResetConfirm ? (
+              {strategy.running ? (
+                <span className="text-xs text-gray-600">Detén la estrategia antes de reiniciar el análisis</span>
+              ) : !showResetConfirm ? (
                 <button
                   onClick={() => setShowResetConfirm(true)}
                   className="text-xs text-gray-600 hover:text-red-400 transition-colors underline"
@@ -93,32 +106,62 @@ export default function App() {
           priceChange24h={priceChange24h}
           priceChangePercent24h={priceChangePercent24h}
           isConnected={isConnected}
+          isServerConnected={isServerConnected}
           lastUpdate={lastUpdate}
         />
 
-        {/* Directional Movement Display */}
-        <DirectionalDisplay state={directionalState} currentPrice={currentPrice} appStartTime={appStartTime} />
+        <RealtimePriceChart currentPrice={currentPrice} isConnected={isConnected} />
 
-        {/* Equity Chart */}
-        <EquityChart state={directionalState} />
+        <div role="tablist" aria-label="Secciones de la aplicación" className="flex gap-2 border-b border-gray-800">
+          <button role="tab" aria-selected={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} className={`border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'analysis' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
+            Análisis de mercado
+          </button>
+          <button role="tab" aria-selected={activeTab === 'strategy'} onClick={() => setActiveTab('strategy')} className={`border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'strategy' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
+            Estrategia virtual
+          </button>
+          <button role="tab" aria-selected={activeTab === 'backtest'} onClick={() => setActiveTab('backtest')} className={`border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'backtest' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
+            Backtesting
+          </button>
+          <button role="tab" aria-selected={activeTab === 'admin'} onClick={() => setActiveTab('admin')} className={`border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'admin' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
+            Administración
+          </button>
+        </div>
 
-        {/* Alerts */}
-        <Alerts state={directionalState} threshold={2.0} />
-
-        {/* Temporal Comparison */}
-        <TemporalComparison state={directionalState} />
+        {activeTab === 'analysis' ? (
+          <>
+            <DirectionalDisplay state={directionalState} currentPrice={currentPrice} appStartTime={appStartTime} />
+            <EquityChart state={directionalState} />
+            <Alerts state={directionalState} threshold={2.0} />
+            <TemporalComparison state={directionalState} />
+          </>
+        ) : activeTab === 'strategy' ? (
+          <StrategyTab
+            state={strategy}
+            directionalState={directionalState}
+            currentPrice={currentPrice}
+            isConnected={isConnected}
+            onStart={startStrategy}
+            onStop={stopStrategy}
+            onReset={resetStrategy}
+          />
+        ) : activeTab === 'backtest' ? (
+          <BacktestTab defaultConfig={strategy.config} />
+        ) : (
+          <AdminPanel currentPrice={currentPrice} />
+        )}
 
         {/* Footer */}
         <div className="text-center py-4 space-y-1">
           <div className="flex items-center justify-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></div>
             <p className="text-xs text-gray-500">
-              Datos guardados automáticamente en tu navegador
+              Estadísticas guardadas automáticamente por el servidor local en server-data.json
             </p>
           </div>
           <p className="text-xs text-gray-600">
-            Datos en tiempo real de Binance Futures • No constituye asesoramiento financiero
+            ETHUSDT Perpetual · Binance Futures · Métrica descriptiva, no es una señal ni asesoramiento financiero
           </p>
+          <p className="pt-1 text-xs font-medium tracking-wide text-gray-500">Versión V1.1</p>
         </div>
       </div>
     </div>
