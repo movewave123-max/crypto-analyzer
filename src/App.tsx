@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { useBinanceData } from './hooks/useBinanceData';
 import PriceHeader from './components/PriceHeader';
 import DirectionalDisplay from './components/DirectionalDisplay';
+import EquityChart from './components/EquityChart';
+import Alerts from './components/Alerts';
+import TemporalComparison from './components/TemporalComparison';
 import { formatDuration } from './utils/directionalMovement';
 
 export default function App() {
@@ -95,6 +98,15 @@ export default function App() {
 
         {/* Directional Movement Display */}
         <DirectionalDisplay state={directionalState} currentPrice={currentPrice} appStartTime={appStartTime} />
+
+        {/* Equity Chart */}
+        <EquityChart state={directionalState} />
+
+        {/* Alerts */}
+        <Alerts state={directionalState} threshold={2.0} />
+
+        {/* Temporal Comparison */}
+        <TemporalComparison state={directionalState} />
 
         {/* Footer */}
         <div className="text-center py-4 space-y-1">
