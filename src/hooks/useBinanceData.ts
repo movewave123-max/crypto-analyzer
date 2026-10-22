@@ -3,6 +3,7 @@ import {
   DirectionalState,
   createDirectionalState,
 } from '../utils/directionalMovement';
+import { DEFAULT_PAPER_STRATEGY_CONFIG, PaperStrategyConfig, PaperStrategyState } from '../utils/paperTrading';
 
 interface ServerState {
   appStartTime: number;
@@ -12,6 +13,7 @@ interface ServerState {
   isConnected: boolean;
   lastUpdate: string;
   directionalState: DirectionalState;
+  strategy: PaperStrategyState;
 }
 
 export function useBinanceData() {
@@ -20,9 +22,21 @@ export function useBinanceData() {
   const [priceChangePercent24h, setPriceChangePercent24h] = useState<number>(0);
   const [directionalState, setDirectionalState] = useState<DirectionalState>(createDirectionalState());
   const [isConnected, setIsConnected] = useState(false);
+  const [isServerConnected, setIsServerConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [appStartTime, setAppStartTime] = useState<number>(0);
   const [initialized, setInitialized] = useState(false);
+  const [strategy, setStrategy] = useState<PaperStrategyState>(() => ({
+    running: false,
+    config: DEFAULT_PAPER_STRATEGY_CONFIG,
+    account: { initialCapital: DEFAULT_PAPER_STRATEGY_CONFIG.initialCapital, realizedPnl: 0, equity: DEFAULT_PAPER_STRATEGY_CONFIG.initialCapital, unrealizedPnl: 0 },
+    position: null,
+    journal: [],
+    activeRunKey: null,
+    ignoreRunKey: null,
+    stoppedRunKey: null,
+    lastMessage: 'Conectando con el servidor…',
+  }));
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
@@ -40,6 +54,7 @@ export function useBinanceData() {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      setIsServerConnected(true);
       console.log('✅ Conectado al servidor');
     };
 
@@ -51,19 +66,20 @@ export function useBinanceData() {
         setPriceChange24h(state.priceChange24h);
         setPriceChangePercent24h(state.priceChangePercent24h);
         setDirectionalState(state.directionalState);
+        setStrategy(state.strategy);
         setAppStartTime(state.appStartTime);
         setLastUpdate(new Date(state.lastUpdate));
         setIsConnected(state.isConnected);
         
-        if (!initialized && state.currentPrice > 0) {
-          setInitialized(true);
-        }
+        // Mostrar la interfaz tras recibir el primer estado, incluso si Binance aún no entrega precios.
+        setInitialized(true);
       } catch (error) {
         console.error('Error parsing message:', error);
       }
     };
 
     ws.onclose = () => {
+      setIsServerConnected(false);
       setIsConnected(false);
       console.log('❌ Desconectado del servidor, reconectando en 3s...');
       reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
@@ -73,7 +89,13 @@ export function useBinanceData() {
       console.error('WebSocket error:', error);
       ws.close();
     };
-  }, [initialized]);
+  }, []);
+
+  // If the local server is unavailable, leave the endless spinner and show connection diagnostics.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setInitialized(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // Initialize connection
   useEffect(() => {
@@ -97,15 +119,31 @@ export function useBinanceData() {
     }
   };
 
+  const postStrategyAction = async (action: 'start' | 'stop' | 'reset', config?: PaperStrategyConfig) => {
+    const response = await fetch(`/api/strategy/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: config ? JSON.stringify(config) : undefined,
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'No se pudo actualizar la estrategia.');
+    return result;
+  };
+
   return {
     currentPrice,
     priceChange24h,
     priceChangePercent24h,
     directionalState,
     isConnected,
+    isServerConnected,
     lastUpdate,
     appStartTime,
     initialized,
     resetData,
+    strategy,
+    startStrategy: (config: PaperStrategyConfig) => postStrategyAction('start', config),
+    stopStrategy: () => postStrategyAction('stop'),
+    resetStrategy: () => postStrategyAction('reset'),
   };
 }

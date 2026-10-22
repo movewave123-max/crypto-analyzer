@@ -10,6 +10,12 @@ Aplicación web que mide cuánto se mueve el precio de ETH/USDT en una direcció
 - **Persistencia en servidor**: Los datos se guardan y persisten entre recargas
 - **Multi-dispositivo**: Todos los clientes ven los mismos datos
 - **Tiempo real**: Actualización cada segundo vía WebSocket
+- **Historial consultable**: Filtros por dirección, fecha y magnitud, con exportación CSV
+- **Retención acotada**: Se conservan hasta 1.000 movimientos recientes por dirección
+- **Estado de conexión**: La interfaz avisa cuando el último precio está desactualizado
+- **Estrategia virtual**: Simula compras/ventas escalonadas, take profit por retroceso, stop loss configurable y diario; no envía órdenes reales
+- **Backtesting**: Simula la estrategia sobre velas históricas de ETHUSDT Futures con métricas de rentabilidad, drawdown y operaciones
+- **Gráfico en tiempo real**: Muestrea el precio cada 100 ms y conserva hasta 15 minutos en el servidor para restaurarlo al recargar la página
 
 ## 📦 Instalación
 
@@ -47,6 +53,7 @@ El servidor se iniciará en el puerto 3000 por defecto.
 ## 🔄 Persistencia de datos
 
 - Los datos se guardan automáticamente en `server-data.json` cada 10 segundos
+- Se conservan como máximo los 1.000 movimientos alcistas y 1.000 bajistas más recientes; las estadísticas y gráficos describen ese conjunto
 - Al reiniciar el servidor, los datos se cargan desde el archivo
 - Al recargar la página, los datos persisten porque están en el servidor
 - Todos los clientes ven los mismos datos (sincronización vía WebSocket)
@@ -54,7 +61,7 @@ El servidor se iniciará en el puerto 3000 por defecto.
 ## 🎯 Cómo funciona
 
 ### Fuente de datos
-El servidor se conecta al **WebSocket de Binance Futures** (`ethusdt@bookTicker`) para recibir datos en **tiempo real**. Se utiliza el **mid-price** (promedio entre el mejor bid y el mejor ask) como precio de referencia.
+El servidor se conecta al **WebSocket de Binance USDⓈ-M Futures** en la ruta nueva `wss://fstream.binance.com/market/ws/ethusdt@aggTrade`. Recibe en tiempo real el precio (`p`) de operaciones ejecutadas, agrupadas cuando corresponden al mismo taker y precio. El análisis, el precio mostrado y la simulación de estrategia utilizan ese precio negociado, en lugar del promedio entre el mejor bid y el mejor ask. Si el gráfico de Binance está configurado para mostrar Mark Price, puede seguir habiendo diferencias porque ese indicador usa otra referencia de precio.
 
 ### Lógica de análisis
 
@@ -66,7 +73,7 @@ El servidor se conecta al **WebSocket de Binance Futures** (`ethusdt@bookTicker`
 
 4. **Registro**: Se guarda cuánto se movió el precio, la duración, y se actualizan las estadísticas
 
-5. **Nuevo ciclo**: Inmediatamente comienza a trackear en la dirección contraria
+5. **Nuevo ciclo**: Cuando se confirma el retroceso, el siguiente tramo usa como inicio el máximo del tramo alcista anterior o el mínimo del tramo bajista anterior. La hora de inicio también se ancla al momento en que se registró ese extremo.
 
 ### Frecuencia de actualización
 - **Tiempo real**: Los datos se actualizan instantáneamente cuando Binance envía actualizaciones del order book
@@ -132,6 +139,10 @@ PORT=8080 node server.cjs
 
 - `GET /api/state` - Obtener estado actual
 - `POST /api/reset` - Resetear todos los datos
+- `POST /api/strategy/start` - Iniciar la simulación virtual
+- `POST /api/strategy/stop` - Detenerla y cerrar una posición virtual abierta al precio actual
+- `POST /api/strategy/reset` - Reiniciar el saldo virtual y su diario (solo detenida)
+- `POST /api/backtest` - Descargar velas históricas de Binance Futures y simular la estrategia sin modificar la cuenta virtual
 
 ## 💡 Casos de uso para trading
 
@@ -148,6 +159,7 @@ Esta métrica te ayuda a entender:
 - Todos los clientes ven los mismos datos
 - El tiempo de inicio se establece cuando arranca el servidor
 - El umbral de retroceso es configurable
+- La aplicación es descriptiva: no predice el precio ni incluye comisiones o financiación
 - La aplicación está optimizada para funcionar 24/7
 
 ## 🐛 Troubleshooting

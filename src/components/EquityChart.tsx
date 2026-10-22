@@ -4,50 +4,83 @@ interface EquityChartProps {
   state: DirectionalState;
 }
 
+const BIAS_WINDOW_SIZE = 30;
+const NEUTRAL_BIAS_THRESHOLD_PERCENT = 10;
+
 export default function EquityChart({ state }: EquityChartProps) {
   const { upRuns, downRuns } = state;
   
-  // Combinar todos los runs y ordenar por tiempo
+  // El sesgo se calcula sobre los tramos completados más recientes.
   const allRuns = [...upRuns, ...downRuns].sort((a, b) => a.endTime - b.endTime);
+  const recentRuns = allRuns.slice(-BIAS_WINDOW_SIZE);
   
-  if (allRuns.length === 0) {
+  if (recentRuns.length === 0) {
     return (
       <div className="rounded-lg bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700 p-6">
         <h3 className="text-lg font-semibold text-white mb-4">
-          📊 Equity Curve
+          📊 Sesgo de mercado
         </h3>
         <div className="text-center py-12 text-gray-500">
           <p className="text-sm">Sin datos aún</p>
-          <p className="text-xs mt-1">El gráfico aparecerá cuando se completen movimientos</p>
+          <p className="text-xs mt-1">El indicador aparecerá cuando se completen movimientos</p>
         </div>
       </div>
     );
   }
 
-  // Calcular equity acumulado
-  let cumulativeEquity = 0;
-  const equityPoints = allRuns.map(run => {
-    cumulativeEquity += run.movePercent;
+  const upMoveTotal = recentRuns
+    .filter(run => run.direction === 'up')
+    .reduce((total, run) => total + Math.abs(run.movePercent), 0);
+  const downMoveTotal = recentRuns
+    .filter(run => run.direction === 'down')
+    .reduce((total, run) => total + Math.abs(run.movePercent), 0);
+  const directionalBalance = upMoveTotal - downMoveTotal;
+  const totalMovement = upMoveTotal + downMoveTotal;
+  const relativeBalancePercent = totalMovement > 0 ? (directionalBalance / totalMovement) * 100 : 0;
+  const hasFullWindow = recentRuns.length === BIAS_WINDOW_SIZE;
+  const bias = !hasFullWindow
+    ? 'collecting'
+    : relativeBalancePercent > NEUTRAL_BIAS_THRESHOLD_PERCENT
+      ? 'bullish'
+      : relativeBalancePercent < -NEUTRAL_BIAS_THRESHOLD_PERCENT
+        ? 'bearish'
+        : 'neutral';
+  const biasLabel = {
+    collecting: 'Recopilando datos',
+    bullish: 'Alcista',
+    bearish: 'Bajista',
+    neutral: 'Neutral',
+  }[bias];
+  const biasColor = {
+    collecting: 'text-gray-300',
+    bullish: 'text-green-400',
+    bearish: 'text-red-400',
+    neutral: 'text-yellow-300',
+  }[bias];
+
+  // Balance acumulado de amplitudes direccionales, no equity ni PnL de una cuenta.
+  let cumulativeBalance = 0;
+  const balancePoints = recentRuns.map(run => {
+    cumulativeBalance += run.movePercent;
     return {
       time: run.endTime,
-      equity: cumulativeEquity,
+      balance: cumulativeBalance,
       direction: run.direction,
       movePercent: run.movePercent,
     };
   });
 
-  // Calcular estadísticas
-  const maxEquity = Math.max(...equityPoints.map(p => p.equity));
-  const minEquity = Math.min(...equityPoints.map(p => p.equity));
-  const currentEquity = equityPoints[equityPoints.length - 1].equity;
+  const maxBalance = Math.max(0, ...balancePoints.map(point => point.balance));
+  const minBalance = Math.min(0, ...balancePoints.map(point => point.balance));
+  const currentBalance = balancePoints[balancePoints.length - 1].balance;
   
-  // Calcular max drawdown
-  let peak = equityPoints[0].equity;
-  let maxDrawdown = 0;
-  equityPoints.forEach(point => {
-    if (point.equity > peak) peak = point.equity;
-    const drawdown = peak - point.equity;
-    if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+  // Mayor caída desde un máximo local del balance, incluyendo el punto inicial 0.
+  let peak = 0;
+  let maxBalancePullback = 0;
+  balancePoints.forEach(point => {
+    if (point.balance > peak) peak = point.balance;
+    const pullback = peak - point.balance;
+    if (pullback > maxBalancePullback) maxBalancePullback = pullback;
   });
 
   // Generar SVG path
@@ -55,15 +88,15 @@ export default function EquityChart({ state }: EquityChartProps) {
   const height = 300;
   const padding = 40;
   
-  const minTime = equityPoints[0].time;
-  const maxTime = equityPoints[equityPoints.length - 1].time;
+  const minTime = balancePoints[0].time;
+  const maxTime = balancePoints[balancePoints.length - 1].time;
   const timeRange = maxTime - minTime || 1;
   
-  const equityRange = maxEquity - minEquity || 1;
+  const balanceRange = maxBalance - minBalance || 1;
   
-  const points = equityPoints.map(point => {
+  const points = balancePoints.map(point => {
     const x = padding + ((point.time - minTime) / timeRange) * (width - 2 * padding);
-    const y = height - padding - ((point.equity - minEquity) / equityRange) * (height - 2 * padding);
+    const y = height - padding - ((point.balance - minBalance) / balanceRange) * (height - 2 * padding);
     return { x, y, ...point };
   });
 
@@ -74,33 +107,37 @@ export default function EquityChart({ state }: EquityChartProps) {
   return (
     <div className="rounded-lg bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700 p-6">
       <h3 className="text-lg font-semibold text-white mb-4">
-        📊 Equity Curve
+        📊 Sesgo de mercado · últimos {recentRuns.length} tramos
       </h3>
+      <p className="mb-5 text-xs text-gray-400">
+        Compara la amplitud acumulada de los tramos alcistas y bajistas completados. p.p. significa puntos porcentuales: la diferencia entre ambas sumas, no el PnL de la estrategia.
+      </p>
       
       {/* Estadísticas */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div>
-          <p className="text-xs text-gray-500 mb-1">Equity Actual</p>
-          <p className={`text-xl font-bold ${currentEquity >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {currentEquity >= 0 ? '+' : ''}{currentEquity.toFixed(2)}%
+          <p className="text-xs text-gray-500 mb-1">Sesgo</p>
+          <p className={`text-xl font-bold ${biasColor}`}>
+            {biasLabel}
+          </p>
+          {!hasFullWindow && <p className="mt-1 text-xs text-gray-500">Se necesitan {BIAS_WINDOW_SIZE} tramos</p>}
+        </div>
+        <div>
+          <p className="text-xs text-gray-500 mb-1">Balance direccional</p>
+          <p className={`text-xl font-bold ${directionalBalance >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            {directionalBalance >= 0 ? '+' : ''}{directionalBalance.toFixed(2)} p.p.
           </p>
         </div>
         <div>
-          <p className="text-xs text-gray-500 mb-1">Máximo</p>
+          <p className="text-xs text-gray-500 mb-1">Movimientos alcistas</p>
           <p className="text-xl font-bold text-green-400">
-            +{maxEquity.toFixed(2)}%
+            +{upMoveTotal.toFixed(2)}%
           </p>
         </div>
         <div>
-          <p className="text-xs text-gray-500 mb-1">Mínimo</p>
+          <p className="text-xs text-gray-500 mb-1">Movimientos bajistas</p>
           <p className="text-xl font-bold text-red-400">
-            {minEquity.toFixed(2)}%
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-gray-500 mb-1">Max Drawdown</p>
-          <p className="text-xl font-bold text-orange-400">
-            -{maxDrawdown.toFixed(2)}%
+            -{downMoveTotal.toFixed(2)}%
           </p>
         </div>
       </div>
@@ -111,7 +148,7 @@ export default function EquityChart({ state }: EquityChartProps) {
           {/* Grid lines */}
           {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
             const y = padding + ratio * (height - 2 * padding);
-            const value = maxEquity - ratio * equityRange;
+            const value = maxBalance - ratio * balanceRange;
             return (
               <g key={i}>
                 <line
@@ -130,29 +167,29 @@ export default function EquityChart({ state }: EquityChartProps) {
                   className="text-xs"
                   fill="#9CA3AF"
                 >
-                  {value.toFixed(1)}%
+                  {value.toFixed(1)} p.p.
                 </text>
               </g>
             );
           })}
           
           {/* Zero line */}
-          {minEquity < 0 && maxEquity > 0 && (
+          {minBalance < 0 && maxBalance > 0 && (
             <line
               x1={padding}
-              y1={height - padding - ((0 - minEquity) / equityRange) * (height - 2 * padding)}
+              y1={height - padding - ((0 - minBalance) / balanceRange) * (height - 2 * padding)}
               x2={width - padding}
-              y2={height - padding - ((0 - minEquity) / equityRange) * (height - 2 * padding)}
+              y2={height - padding - ((0 - minBalance) / balanceRange) * (height - 2 * padding)}
               stroke="#6B7280"
               strokeWidth="2"
             />
           )}
           
-          {/* Equity line */}
+          {/* Balance line */}
           <path
             d={pathD}
             fill="none"
-            stroke={currentEquity >= 0 ? '#10B981' : '#EF4444'}
+            stroke={currentBalance >= 0 ? '#10B981' : '#EF4444'}
             strokeWidth="2"
           />
           
@@ -190,7 +227,8 @@ export default function EquityChart({ state }: EquityChartProps) {
       </div>
       
       <div className="mt-4 text-xs text-gray-500">
-        <p>Total de movimientos: {allRuns.length} ({upRuns.length} alcistas, {downRuns.length} bajistas)</p>
+        <p>Balance acumulado de movimientos: {currentBalance >= 0 ? '+' : ''}{currentBalance.toFixed(2)} p.p. · Retroceso máximo del balance: {maxBalancePullback.toFixed(2)} p.p.</p>
+        <p className="mt-1">Umbral neutral: ±{NEUTRAL_BIAS_THRESHOLD_PERCENT}% del movimiento total · Ventana: {recentRuns.length}/{BIAS_WINDOW_SIZE} tramos completos</p>
       </div>
     </div>
   );
