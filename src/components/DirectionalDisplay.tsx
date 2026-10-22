@@ -73,7 +73,7 @@ export default function DirectionalDisplay({ state, currentPrice, appStartTime }
                 <p className={`text-xl font-bold ${
                   currentRun.direction === 'up' ? 'text-green-400' : 'text-red-400'
                 }`}>
-                  +{currentMovePercent.toFixed(3)}%
+                  {currentRun.direction === 'up' ? '+' : '-'}{currentMovePercent.toFixed(3)}%
                 </p>
                 <p className="text-xs text-gray-500">
                   ${Math.abs(currentRun.extremePrice - currentRun.startPrice).toFixed(2)}
@@ -195,7 +195,7 @@ export default function DirectionalDisplay({ state, currentPrice, appStartTime }
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Movimiento promedio</p>
                   <p className="text-2xl font-bold text-red-400">
-                    -{stats.avgDownMove.toFixed(3)}%
+                    {stats.avgDownMove.toFixed(3)}%
                   </p>
                 </div>
               </div>
@@ -204,13 +204,13 @@ export default function DirectionalDisplay({ state, currentPrice, appStartTime }
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Máximo</p>
                   <p className="text-lg font-bold text-red-400">
-                    -{stats.maxDownMove.toFixed(3)}%
+                    {stats.maxDownMove.toFixed(3)}%
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Mínimo</p>
                   <p className="text-lg font-bold text-red-400">
-                    -{stats.minDownMove === Infinity ? '0.000' : stats.minDownMove.toFixed(3)}%
+                    {stats.minDownMove === Infinity ? '0.000' : stats.minDownMove.toFixed(3)}%
                   </p>
                 </div>
               </div>
@@ -267,7 +267,7 @@ export default function DirectionalDisplay({ state, currentPrice, appStartTime }
                   <p className={`text-lg font-bold ${
                     run.direction === 'up' ? 'text-green-400' : 'text-red-400'
                   }`}>
-                    {run.direction === 'up' ? '+' : '-'}{run.movePercent.toFixed(3)}%
+                    {run.movePercent.toFixed(3)}%
                   </p>
                   <p className="text-xs text-gray-500">
                     ${run.moveAmount.toFixed(2)} • {formatDuration(run.duration)}
