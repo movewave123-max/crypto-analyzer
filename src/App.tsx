@@ -94,7 +94,7 @@ export default function App() {
         />
 
         {/* Directional Movement Display */}
-        <DirectionalDisplay state={directionalState} currentPrice={currentPrice} />
+        <DirectionalDisplay state={directionalState} currentPrice={currentPrice} appStartTime={appStartTime} />
 
         {/* Footer */}
         <div className="text-center py-4 space-y-1">

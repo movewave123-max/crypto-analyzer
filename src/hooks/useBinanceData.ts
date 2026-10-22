@@ -2,182 +2,99 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   DirectionalState,
   createDirectionalState,
-  updateDirectionalState,
 } from '../utils/directionalMovement';
 
-const BINANCE_FAPI = 'https://fapi.binance.com/fapi/v1';
-const STORAGE_KEY = 'directional-movement-data';
+interface ServerState {
+  appStartTime: number;
+  currentPrice: number;
+  priceChange24h: number;
+  priceChangePercent24h: number;
+  isConnected: boolean;
+  lastUpdate: string;
+  directionalState: DirectionalState;
+}
 
 export function useBinanceData() {
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [priceChange24h, setPriceChange24h] = useState<number>(0);
   const [priceChangePercent24h, setPriceChangePercent24h] = useState<number>(0);
-  const [directionalState, setDirectionalState] = useState<DirectionalState>(createDirectionalState(0.4));
+  const [directionalState, setDirectionalState] = useState<DirectionalState>(createDirectionalState());
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [appStartTime, setAppStartTime] = useState<number>(0);
   const [initialized, setInitialized] = useState(false);
 
-  const directionalStateRef = useRef<DirectionalState>(directionalState);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval>>();
-  const priceRef = useRef<number>(0);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Load persisted data from localStorage
-  const loadPersistedData = useCallback((): DirectionalState | null => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) return null;
-      return JSON.parse(stored);
-    } catch (error) {
-      console.error('Error loading persisted data:', error);
-      return null;
+  // Connect to server WebSocket
+  const connectWebSocket = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
     }
-  }, []);
 
-  // Save data to localStorage
-  const savePersistedData = useCallback((state: DirectionalState) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (error) {
-      console.error('Error saving persisted data:', error);
-    }
-  }, []);
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}`;
 
-  // Process new price
-  const processPrice = useCallback((price: number) => {
-    if (price <= 0) return;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
 
-    const now = Date.now();
-    priceRef.current = price;
-    setCurrentPrice(price);
-    setLastUpdate(new Date());
-    setIsConnected(true);
+    ws.onopen = () => {
+      console.log('✅ Conectado al servidor');
+    };
 
-    // Update directional state
-    const updatedState = updateDirectionalState(directionalStateRef.current, price, now);
-    directionalStateRef.current = updatedState;
-    setDirectionalState(updatedState);
-
-    // Save to localStorage
-    savePersistedData(updatedState);
-  }, [savePersistedData]);
-
-  // Fetch price from Binance REST API
-  const fetchPrice = useCallback(async () => {
-    try {
-      const response = await fetch(`${BINANCE_FAPI}/ticker/price?symbol=ETHUSDT`);
-      if (!response.ok) throw new Error('Network error');
-      const data = await response.json();
-      const price = parseFloat(data.price);
-      processPrice(price);
-    } catch (error) {
-      console.error('Error fetching price:', error);
-      setIsConnected(false);
-    }
-  }, [processPrice]);
-
-  // Fetch 24h ticker data
-  const fetch24hTicker = useCallback(async () => {
-    try {
-      const response = await fetch(`${BINANCE_FAPI}/ticker/24hr?symbol=ETHUSDT`);
-      if (!response.ok) throw new Error('Network error');
-      const data = await response.json();
-      setPriceChange24h(parseFloat(data.priceChange));
-      setPriceChangePercent24h(parseFloat(data.priceChangePercent));
-    } catch (error) {
-      console.error('Error fetching 24h ticker:', error);
-    }
-  }, []);
-
-  // Initialize the app
-  useEffect(() => {
-    const init = async () => {
-      // Try to load persisted data
-      const persisted = loadPersistedData();
-      
-      if (persisted) {
-        directionalStateRef.current = persisted;
-        setDirectionalState(persisted);
-      }
-
-      // Fetch initial price
+    ws.onmessage = (event) => {
       try {
-        const response = await fetch(`${BINANCE_FAPI}/ticker/price?symbol=ETHUSDT`);
-        const data = await response.json();
-        const price = parseFloat(data.price);
+        const state: ServerState = JSON.parse(event.data);
         
-        if (price > 0) {
-          const now = Date.now();
-          setAppStartTime(now);
-          priceRef.current = price;
-          setCurrentPrice(price);
-          setLastUpdate(new Date());
-          setIsConnected(true);
-
-          // Initialize directional state if not loaded from storage
-          if (!persisted) {
-            const initialState = createDirectionalState(0.4);
-            const updatedState = updateDirectionalState(initialState, price, now);
-            directionalStateRef.current = updatedState;
-            setDirectionalState(updatedState);
-            savePersistedData(updatedState);
-          }
-
+        setCurrentPrice(state.currentPrice);
+        setPriceChange24h(state.priceChange24h);
+        setPriceChangePercent24h(state.priceChangePercent24h);
+        setDirectionalState(state.directionalState);
+        setAppStartTime(state.appStartTime);
+        setLastUpdate(new Date(state.lastUpdate));
+        setIsConnected(state.isConnected);
+        
+        if (!initialized && state.currentPrice > 0) {
           setInitialized(true);
-
-          // Fetch 24h ticker
-          fetch24hTicker();
         }
       } catch (error) {
-        console.error('Error initializing:', error);
+        console.error('Error parsing message:', error);
       }
     };
 
-    init();
-
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    ws.onclose = () => {
+      setIsConnected(false);
+      console.log('❌ Desconectado del servidor, reconectando en 3s...');
+      reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
     };
-  }, [fetch24hTicker, loadPersistedData, savePersistedData]);
 
-  // Start polling after initialization
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      ws.close();
+    };
+  }, [initialized]);
+
+  // Initialize connection
   useEffect(() => {
-    if (!initialized) return;
-
-    // Poll price every 1 second
-    pollIntervalRef.current = setInterval(() => {
-      fetchPrice();
-    }, 1000);
-
-    // Update 24h ticker every 30 seconds
-    const tickerInterval = setInterval(() => {
-      fetch24hTicker();
-    }, 30000);
+    connectWebSocket();
 
     return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-      clearInterval(tickerInterval);
+      if (wsRef.current) wsRef.current.close();
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
-  }, [initialized, fetchPrice, fetch24hTicker]);
+  }, [connectWebSocket]);
 
   // Reset function
   const resetData = async () => {
-    const now = Date.now();
-    const price = priceRef.current;
-    
-    const newState = createDirectionalState(0.4);
-    if (price > 0) {
-      const updatedState = updateDirectionalState(newState, price, now);
-      directionalStateRef.current = updatedState;
-      setDirectionalState(updatedState);
-      savePersistedData(updatedState);
-    } else {
-      directionalStateRef.current = newState;
-      setDirectionalState(newState);
-      savePersistedData(newState);
+    try {
+      const response = await fetch('/api/reset', { method: 'POST' });
+      if (response.ok) {
+        console.log('✅ Datos reseteados en el servidor');
+      }
+    } catch (error) {
+      console.error('Error resetting data:', error);
     }
-    
-    setAppStartTime(now);
   };
 
   return {

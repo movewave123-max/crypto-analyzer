@@ -3,9 +3,10 @@ import { DirectionalState, DirectionalRun, formatDuration } from '../utils/direc
 interface DirectionalDisplayProps {
   state: DirectionalState;
   currentPrice: number;
+  appStartTime: number;
 }
 
-export default function DirectionalDisplay({ state, currentPrice }: DirectionalDisplayProps) {
+export default function DirectionalDisplay({ state, currentPrice, appStartTime }: DirectionalDisplayProps) {
   const { currentRun, upRuns, downRuns, stats, reversalThreshold } = state;
 
   // Calcular el movimiento actual en progreso
@@ -38,6 +39,11 @@ export default function DirectionalDisplay({ state, currentPrice }: DirectionalD
         <p className="text-sm text-gray-400">
           Mide cuánto se mueve el precio en una dirección antes de retroceder {reversalThreshold}%
         </p>
+        {appStartTime > 0 && (
+          <p className="text-xs text-gray-500 mt-2">
+            ⏱️ Tiempo transcurrido: {formatDuration(Date.now() - appStartTime)}
+          </p>
+        )}
       </div>
 
       {/* Run actual en progreso */}
