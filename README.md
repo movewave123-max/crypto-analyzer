@@ -53,6 +53,11 @@ El servidor se iniciará en el puerto 3000 por defecto.
 
 ## 🎯 Cómo funciona
 
+### Fuente de datos
+El servidor se conecta al **WebSocket de Binance Futures** (`ethusdt@bookTicker`) para recibir datos en **tiempo real**. Se utiliza el **mid-price** (promedio entre el mejor bid y el mejor ask) como precio de referencia.
+
+### Lógica de análisis
+
 1. **Detección de dirección**: Cuando el precio se mueve 0.01% o más desde el inicio, se establece una dirección (alcista o bajista)
 
 2. **Seguimiento del extremo**: Se trackea el precio más alto (en movimientos alcistas) o más bajo (en movimientos bajistas) alcanzado
@@ -62,6 +67,11 @@ El servidor se iniciará en el puerto 3000 por defecto.
 4. **Registro**: Se guarda cuánto se movió el precio, la duración, y se actualizan las estadísticas
 
 5. **Nuevo ciclo**: Inmediatamente comienza a trackear en la dirección contraria
+
+### Frecuencia de actualización
+- **Tiempo real**: Los datos se actualizan instantáneamente cuando Binance envía actualizaciones del order book
+- **Reconexión automática**: Si se pierde la conexión con Binance, el servidor intenta reconectar cada 5 segundos
+- **Persistencia**: Los datos se guardan cada 10 segundos en `server-data.json`
 
 ## 📊 Ejemplo
 

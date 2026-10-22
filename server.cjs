@@ -1,5 +1,5 @@
 const express = require('express');
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -239,19 +239,64 @@ function saveData() {
   }
 }
 
-// Obtener precio de Binance
-async function fetchPrice() {
-  try {
-    const response = await fetch(`${BINANCE_API}/ticker/price?symbol=ETHUSDT`);
-    const data = await response.json();
-    return parseFloat(data.price);
-  } catch (error) {
-    console.error('Error obteniendo precio:', error);
-    return null;
-  }
+// WebSocket de Binance para bookTicker en tiempo real
+let binanceWs = null;
+let reconnectTimeout = null;
+
+function connectBinanceWebSocket() {
+  const BINANCE_WS_URL = 'wss://fstream.binance.com/ws/ethusdt@bookTicker';
+  
+  console.log('🔌 Conectando a Binance WebSocket...');
+  binanceWs = new WebSocket(BINANCE_WS_URL);
+  
+  binanceWs.on('open', () => {
+    console.log('✅ Conectado a Binance WebSocket (bookTicker)');
+  });
+  
+  binanceWs.on('message', (data) => {
+    try {
+      const message = JSON.parse(data);
+      
+      // bookTicker envía: { e: "bookTicker", b: "bestBid", a: "bestAsk", ... }
+      if (message.e === 'bookTicker') {
+        const bestBid = parseFloat(message.b);
+        const bestAsk = parseFloat(message.a);
+        
+        // Calcular mid-price (precio medio entre bid y ask)
+        const midPrice = (bestBid + bestAsk) / 2;
+        
+        if (midPrice > 0) {
+          processPrice(midPrice);
+        }
+      }
+    } catch (error) {
+      console.error('Error procesando mensaje de Binance:', error);
+    }
+  });
+  
+  binanceWs.on('close', () => {
+    console.log('❌ Desconectado de Binance WebSocket');
+    scheduleReconnect();
+  });
+  
+  binanceWs.on('error', (error) => {
+    console.error('Error en WebSocket de Binance:', error);
+    binanceWs.close();
+  });
 }
 
-// Obtener ticker 24h
+function scheduleReconnect() {
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+  }
+  
+  reconnectTimeout = setTimeout(() => {
+    console.log('🔄 Intentando reconectar en 5 segundos...');
+    connectBinanceWebSocket();
+  }, 5000);
+}
+
+// Obtener ticker 24h (solo para cambio porcentual)
 async function fetch24hTicker() {
   try {
     const response = await fetch(`${BINANCE_API}/ticker/24hr?symbol=ETHUSDT`);
@@ -332,25 +377,10 @@ async function startServer() {
   
   if (!loaded) {
     console.log('🆕 Iniciando servidor con datos nuevos');
-    // Obtener precio inicial
-    const price = await fetchPrice();
-    if (price > 0) {
-      serverState.currentPrice = price;
-      serverState.directionalState = updateDirectionalState(
-        serverState.directionalState, 
-        price, 
-        Date.now()
-      );
-    }
   }
 
-  // Iniciar polling de precios (cada 1 segundo)
-  setInterval(async () => {
-    const price = await fetchPrice();
-    if (price) {
-      await processPrice(price);
-    }
-  }, 1000);
+  // Conectar al WebSocket de Binance para datos en tiempo real
+  connectBinanceWebSocket();
 
   // Actualizar ticker 24h cada 30 segundos
   setInterval(fetch24hTicker, 30000);
@@ -371,6 +401,7 @@ async function startServer() {
 ║   🌐 URL: http://localhost:${PORT}                           ║
 ║   📊 Tiempo de inicio: ${new Date(serverState.appStartTime).toLocaleString()}  ║
 ║   🎯 Umbral de retroceso: ${REVERSAL_THRESHOLD}%                        ║
+║   ⚡ Fuente de datos: Binance WebSocket (bookTicker)       ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
     `);
@@ -381,6 +412,15 @@ async function startServer() {
 process.on('SIGINT', () => {
   console.log('\n🛑 Cerrando servidor...');
   saveData();
+  
+  // Cerrar WebSocket de Binance
+  if (binanceWs) {
+    binanceWs.close();
+  }
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+  }
+  
   server.close(() => {
     console.log('✅ Servidor cerrado correctamente');
     process.exit(0);
